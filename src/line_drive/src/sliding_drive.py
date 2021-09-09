@@ -7,16 +7,18 @@ import cv2, random, math, copy
 Width = 640
 Height = 480
 warp_Offset = 120
+lane_bin_th_l, lane_bin_th_r = 120, 120
 
 # 트랙 동영상 읽어 들이기
-cap = cv2.VideoCapture('kmu_track.mkv')
+cap = cv2.VideoCapture('kmu_track_fast.mkv')
 window_title = 'camera'
 
-warp_img_w = 320 #320
-warp_img_h = 240 #240
+warp_img_w = Width / 2 #320
+warp_img_h = Height / 2 #240
 
 warpx_margin = 20
 warpy_margin = 3
+mid_margin = 90
 
 # 슬라이딩 윈도우 개수
 nwindows = 9
@@ -28,24 +30,10 @@ minpix = 5
 lane_bin_th = 125 #145
 
 warp_src  = np.array([
-    [100, 310],  
+    [30, 355],  
     [0,  385],
-    [Width-115, 310],
+    [Width-45, 355],
     [Width, 385]
-], dtype=np.float32)
-
-warp_src_2  = np.array([
-    [100, 300],  
-    [30,  350],
-    [Width-125, 300],
-    [Width-40, 350]
-], dtype=np.float32)
-
-warp_src_origin  = np.array([
-    [230-warpx_margin, 300-warpy_margin],  
-    [45-warpx_margin,  450+warpy_margin],
-    [445+warpx_margin, 300-warpy_margin],
-    [610+warpx_margin, 450+warpy_margin]
 ], dtype=np.float32)
 
 warp_dist = np.array([
@@ -87,27 +75,37 @@ def warp_image(img, src, dst, size):
     return warp_img, M, Minv
 
 def warp_process_image(img):
+    global warp_img_w
     global nwindows
     global margin
+    global mid_margin
     global minpix
     global lane_bin_th
     global pre_left_lane_inds
     global pre_right_lane_inds
+    global lane_bin_th_l, lane_bin_th_r
     
     # 이미지에서 가우시안 블러링으로 노이즈 제거
     blur = cv2.GaussianBlur(img, (5, 5), 0)
 
-    # HSL 포맷에서 L채널을 이용하면 흰색선을 쉽게 구분할 수 있음
-    # _, L, _ = cv2.split(cv2.cvtColor(blur, cv2.COLOR_BGR2HLS))
-    # 임계값은 현재 이미지의 상태에 따라 낮추거나 올리기
-    # _, lane = cv2.threshold(L, lane_bin_th, 255, cv2.THRESH_BINARY)
-
-    # HSV 포맷에서 L채널을 이용하면 흰색선을 쉽게 구분할 수 있음
-    _, _, V = cv2.split(cv2.cvtColor(blur, cv2.COLOR_BGR2HSV))
-    # 임계값은 현재 이미지의 상태에 따라 낮추거나 올리기
-    _, lane = cv2.threshold(V, lane_bin_th, 255, cv2.THRESH_BINARY)
+    # HLS 포맷에서 L채널을 이용
+    _, L, _ = cv2.split(cv2.cvtColor(blur, cv2.COLOR_BGR2HLS))
+    #lane_bin_th = L.mean() * 1.25 + 20
+    lane_bin_th_l = L[:warp_img_w/2 - mid_margin].mean() + 30
+    lane_bin_th_r = L[warp_img_w/2 + mid_margin:].mean() + 30
+    
+    #_, lane = cv2.threshold(L, lane_bin_th, 255, cv2.THRESH_BINARY)
+    _, lane_l = cv2.threshold(L, lane_bin_th_l, 255, cv2.THRESH_BINARY)
+    _, lane_r = cv2.threshold(L, lane_bin_th_r, 255, cv2.THRESH_BINARY)
+    lane = np.concatenate((lane_l[:warp_img_w/2], lane_r[warp_img_w/2:]), axis=0)
+    print('lane', lane)
+    # HSV 포맷에서 L채널을 이용
+    #_, _, V = cv2.split(cv2.cvtColor(blur, cv2.COLOR_BGR2HSV))
+    #_, lane = cv2.threshold(V, lane_bin_th, 255, cv2.THRESH_BINARY)
 
     #gray = cv2.cvtColor(blur, cv2.COLOR_BGR2GRAY)
+    #lane_bin_th = gray.mean() * 0.45 + 90
+    #print('lane_bin_th', lane_bin_th)
     #_, lane = cv2.threshold(gray, lane_bin_th, 255, cv2.THRESH_BINARY)
 
     # 히스토그램이란 이미지를 구성하는 픽셀 분포에 대한 그래프
@@ -117,9 +115,9 @@ def warp_process_image(img):
     # x축(x좌표)을 반으로 나누어 왼쪽 차선과 오른쪽 차선을 구분하기      
     midpoint = np.int(histogram.shape[0]/2)
     # 왼쪽 절반 구역에서 흰색 픽셀의 개수가 가장 많은 위치를 슬라이딩 윈도우의 왼쪽 시작 위치로 잡기
-    leftx_current = np.argmax(histogram[:midpoint-100])
+    leftx_current = np.argmax(histogram[:midpoint-mid_margin])
     # 오른쪽 절반 구역에서 흰색 픽셀의 개수가 가장 많은 위치를 슬라이딩 윈도우의 오른쪽 시작 위치로 잡기
-    rightx_current = histogram.shape[0] - np.argmax(histogram[histogram.shape[0]:midpoint+100:-1])
+    rightx_current = warp_img_w - np.argmax(histogram[histogram.shape[0]:midpoint+mid_margin:-1])
 
     window_height = np.int(lane.shape[0]/nwindows)
     nz = lane.nonzero()
@@ -217,8 +215,34 @@ def draw_lane(image, warp_img, Minv, left_fit, right_fit):
 
     return cv2.addWeighted(image, 1, newwarp, 0.3, 0)
 
+# draw_steer
+def draw_steer(lane_img, steer_angle):
+    global Width, Height
+    steer_img = lane_img.copy()
+    arrow_pic = cv2.imread('steer_arrow.png', cv2.IMREAD_COLOR)
+
+    origin_Height = arrow_pic.shape[0]
+    origin_Width = arrow_pic.shape[1]
+    steer_wheel_center = origin_Height * 0.74
+    arrow_Height = Height/2
+    arrow_Width = (arrow_Height * 462)/728
+
+    matrix = cv2.getRotationMatrix2D((origin_Width/2, steer_wheel_center), (steer_angle) * 1.5, 0.7)
+    arrow_pic = cv2.warpAffine(arrow_pic, matrix, (origin_Width+60, origin_Height))
+    arrow_pic = cv2.resize(arrow_pic, dsize=(arrow_Width, arrow_Height), interpolation=cv2.INTER_AREA)
+
+    gray_arrow = cv2.cvtColor(arrow_pic, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray_arrow, 1, 255, cv2.THRESH_BINARY_INV)
+
+    arrow_roi = steer_img[arrow_Height: Height, (Width/2 - arrow_Width/2) : (Width/2 + arrow_Width/2)]
+    arrow_roi = cv2.add(arrow_pic, arrow_roi, mask=mask)
+    res = cv2.add(arrow_roi, arrow_pic)
+    steer_img[(Height - arrow_Height): Height, (Width/2 - arrow_Width/2): (Width/2 + arrow_Width/2)] = res
+
+    return steer_img
+
 def start():
-    global Width, Height, cap
+    global Width, Height, cap, warp_img_w, warp_Offset
 
     _, frame = cap.read()
     while not frame.size == (Width*Height*3):
@@ -240,12 +264,13 @@ def start():
         lpos = get_pos_from_fit(left_fit, y=warp_Offset, left=True, right=False)
         rpos = get_pos_from_fit(right_fit, y=warp_Offset, left=False, right=True)
         center = (lpos + rpos) / 2
-        angle = -(Width/2 - center)
-        #drive(angle, 30)
+        angle = warp_img_w/2 - center
+        steer_angle = angle * 0.4
+        steer_img = draw_steer(lane_img, steer_angle)
         
-        #print(lpos, rpos, angle)
+        #print(lpos, rpos, steer_angle)
 
-        cv2.imshow(window_title, lane_img)
+        #cv2.imshow(window_title, steer_img)
 
         cv2.waitKey(1)
 
