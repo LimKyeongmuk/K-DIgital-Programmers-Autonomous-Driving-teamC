@@ -49,15 +49,16 @@ src
 ---
 ### 1. 맵 주행
 ~~~bash
-
+$ roslaunch ~ ~
 ~~~
 ### 2. 차선 인식
 ~~~bash
-
+$ cd src/line_drive/src
+$ python line_drive.py
 ~~~
 ### 3. 주차 미션
 ~~~bash
-
+$ roslaunch ~ ~
 ~~~
 
 ## Goal
@@ -68,20 +69,20 @@ src
 
 ## Procedure
 ---
-### 1. 
+### 1. 맵 주행
 - 
 - 
 - 
-### 2. 
+### 2. 차선 인식
 - 
 - 
-### 3. 
+### 3. 주차 미션
 
 ## Limitations
 ---
-### 1. 
-### 2. 
-### 3. 
+### 1. 맵 주행
+### 2. 차선 인식
+### 3. 주차 미션
 
 ## What I've learned
 ---
